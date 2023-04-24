@@ -1047,6 +1047,35 @@ struct DevFed {
     esplora: Esplora,
 }
 
+#[allow(unused)]
+struct ExternalDaemons {
+    bitcoind: Bitcoind,
+    cln: Lightningd,
+    lnd: Lnd,
+    electrs: Electrs,
+    esplora: Esplora,
+}
+
+async fn base_daemons(process_mgr: &ProcessManager) -> Result<ExternalDaemons> {
+    let start_time = fedimint_core::time::now();
+    let bitcoind = Bitcoind::new(process_mgr).await?;
+    let (cln, lnd, electrs, esplora) = tokio::try_join!(
+        Lightningd::new(process_mgr, bitcoind.clone()),
+        Lnd::new(process_mgr, bitcoind.clone()),
+        Electrs::new(process_mgr, bitcoind.clone()),
+        Esplora::new(process_mgr, bitcoind.clone()),
+    )?;
+    open_channel(&bitcoind, &cln, &lnd).await?;
+    info!("starting base deamons took {:?}", start_time.elapsed()?);
+    Ok(ExternalDaemons {
+        bitcoind,
+        cln,
+        lnd,
+        electrs,
+        esplora,
+    })
+}
+
 async fn dev_fed(task_group: &TaskGroup, process_mgr: &ProcessManager) -> Result<DevFed> {
     let start_time = fedimint_core::time::now();
     let bitcoind = Bitcoind::new(process_mgr).await?;
@@ -1089,21 +1118,6 @@ async fn dev_fed(task_group: &TaskGroup, process_mgr: &ProcessManager) -> Result
         electrs,
         esplora,
     })
-}
-
-async fn tmuxinator(process_mgr: &ProcessManager, task_group: &TaskGroup) -> Result<()> {
-    let ready_file = env::var("FM_READY_FILE")?;
-    match dev_fed(task_group, process_mgr).await {
-        Ok(_dev_fed) => {
-            fs::write(ready_file, "READY").await?;
-            task_group.make_handle().make_shutdown_rx().await.await?;
-            Ok(())
-        }
-        Err(e) => {
-            fs::write(ready_file, "ERROR").await?;
-            Err(e)
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -1167,6 +1181,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
 enum Cmd {
+    BaseDaemons,
     Tmuxinator,
     LatencyTests,
     ReconnectTest,
@@ -1180,6 +1195,15 @@ struct Args {
     command: Cmd,
 }
 
+async fn write_ready_file<T>(result: Result<T>) -> Result<T> {
+    let ready_file = env::var("FM_READY_FILE")?;
+    match result {
+        Ok(_) => fs::write(ready_file, "READY").await?,
+        Err(_) => fs::write(ready_file, "ERROR").await?,
+    }
+    result
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     fedimint_logging::TracingSetup::default().init()?;
@@ -1188,7 +1212,14 @@ async fn main() -> Result<()> {
     task_group.install_kill_handler();
     let args = Args::parse();
     match args.command {
-        Cmd::Tmuxinator => tmuxinator(&process_mgr, &task_group).await?,
+        Cmd::BaseDaemons => {
+            let _daemons = write_ready_file(base_daemons(&process_mgr).await).await?;
+            task_group.make_handle().make_shutdown_rx().await.await?;
+        }
+        Cmd::Tmuxinator => {
+            let _daemons = write_ready_file(dev_fed(&task_group, &process_mgr).await).await?;
+            task_group.make_handle().make_shutdown_rx().await.await?;
+        }
         Cmd::LatencyTests => {
             let dev_fed = dev_fed(&task_group, &process_mgr).await?;
             latency_tests(dev_fed).await?;
