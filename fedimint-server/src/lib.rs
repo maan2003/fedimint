@@ -262,11 +262,7 @@ impl FedimintServer {
                             target: LOG_NET_API,
                             path, "API handler panicked, DO NOT IGNORE, FIX IT!!!"
                         );
-                        jsonrpsee::core::Error::Call(CallError::Custom(ErrorObject::owned(
-                            500,
-                            "API handler panicked",
-                            None::<()>,
-                        )))
+                        jsonrpsee::core::Error::Call(todo!())
                     })?
                     .map_err(|tokio::time::error::Elapsed { .. }| {
                         jsonrpsee::core::Error::RequestTimeout

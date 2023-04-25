@@ -315,6 +315,7 @@
                     # This is required to prevent a mangled bash shell in nix develop
                     # see: https://discourse.nixos.org/t/interactive-bash-with-nix-develop-flake/15486
                     (hiPrio pkgs.bashInteractive)
+                    rr
                     tmux
                     tmuxinator
                     mprocs

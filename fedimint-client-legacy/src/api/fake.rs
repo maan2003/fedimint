@@ -20,7 +20,7 @@ type Handler<State> = Pin<
                 Arc<State>,
                 Vec<Value>,
             )
-                -> Pin<Box<dyn Future<Output = jsonrpsee_core::RpcResult<serde_json::Value>> + Send>>
+                -> Pin<Box<dyn Future<Output = Result<serde_json::Value, jsonrpsee_core::Error>> + Send>>
             + Send
             + Sync,
     >,
@@ -68,9 +68,7 @@ where
             Box::pin(move |state, params| {
                 Box::pin(async move {
                     if params.len() != 1 {
-                        return Err(jsonrpsee_core::Error::Custom(
-                            "wrong number of arguments".into(),
-                        ));
+                        todo!()
                     }
 
                     let request: ApiRequest<Param> = serde_json::from_value(
