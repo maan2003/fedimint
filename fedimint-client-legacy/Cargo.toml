@@ -45,14 +45,14 @@ tbs = { path = "../crypto/tbs" }
 thiserror = "1.0.39"
 tokio = { version = "1.26.0", features = ["sync"] }
 tracing = "0.1.37"
-jsonrpsee-types = "0.18"
-jsonrpsee-core = { version = "0.18", features = [ "client" ] }
+jsonrpsee-types = { git = "https://github.com/paritytech/jsonrpsee", rev = "1a2a19906ae00b9e19d67b14595610e7fb98091d" }
+jsonrpsee-core = { git = "https://github.com/paritytech/jsonrpsee", rev = "1a2a19906ae00b9e19d67b14595610e7fb98091d", features = ["client"] }
 serde_json = "1.0.91"
 url = { version = "2.3.1", features = ["serde"] }
 threshold_crypto = { git = "https://github.com/fedimint/threshold_crypto" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-jsonrpsee-ws-client = { version = "0.18", features = ["webpki-tls"], default-features = false }
+jsonrpsee-ws-client = { git = "https://github.com/paritytech/jsonrpsee", rev = "1a2a19906ae00b9e19d67b14595610e7fb98091d"}
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 jsonrpsee-wasm-client = "0.18"
