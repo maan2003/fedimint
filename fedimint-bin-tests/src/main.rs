@@ -12,7 +12,7 @@ use bitcoincore_rpc::bitcoin::Amount;
 use bitcoincore_rpc::{bitcoin, RpcApi};
 use cln_rpc::primitives::{Amount as ClnRpcAmount, AmountOrAny};
 use cln_rpc::ClnRpc;
-use federation::{run_dkg, Federation};
+use federation::{fedimint_env, run_dkg, Federation, Fedimintd};
 use fedimint_client::module::gen::{ClientModuleGenRegistry, DynClientModuleGen};
 use fedimint_client_legacy::modules::mint::MintClientGen;
 use fedimint_client_legacy::{module_decode_stubs, UserClient, UserClientConfig};
@@ -23,6 +23,7 @@ use fedimint_core::task::TaskGroup;
 use fedimint_ln_client::LightningClientGen;
 use fedimint_wallet_client::WalletClientGen;
 use tokio::fs;
+use tokio::net::TcpStream;
 use tokio::sync::{MappedMutexGuard, Mutex, MutexGuard};
 use tokio::time::sleep;
 use tonic_lnd::lnrpc::GetInfoRequest;
@@ -1183,6 +1184,7 @@ use clap::{Parser, Subcommand};
 enum Cmd {
     BaseDaemons,
     Tmuxinator,
+    RunUi,
     LatencyTests,
     ReconnectTest,
     CliTests,
@@ -1204,6 +1206,27 @@ async fn write_ready_file<T>(result: Result<T>) -> Result<T> {
     result
 }
 
+async fn run_ui(process_mgr: &ProcessManager, task_group: &TaskGroup) -> Result<()> {
+    let bitcoind = Bitcoind::new(process_mgr).await?;
+    let mut fedimints = Vec::new();
+    for id in 0..2 {
+        fedimints.push(Fedimintd::new(process_mgr, bitcoind.clone(), id).await?);
+    }
+    for id in 0..2 {
+        let fedimint_env = fedimint_env(id)?;
+        let ui_addr = &fedimint_env["FM_LISTEN_UI"];
+        poll("waiting for ui startup", || async {
+            Ok(TcpStream::connect(ui_addr)
+                .await
+                .is_ok())
+        })
+        .await?;
+        info!("Started UI on http://{ui_addr}");
+    }
+    task_group.make_handle().make_shutdown_rx().await.await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     fedimint_logging::TracingSetup::default().init()?;
@@ -1220,6 +1243,7 @@ async fn main() -> Result<()> {
             let _daemons = write_ready_file(dev_fed(&task_group, &process_mgr).await).await?;
             task_group.make_handle().make_shutdown_rx().await.await?;
         }
+        Cmd::RunUi => run_ui(&process_mgr, &task_group).await?,
         Cmd::LatencyTests => {
             let dev_fed = dev_fed(&task_group, &process_mgr).await?;
             latency_tests(dev_fed).await?;
