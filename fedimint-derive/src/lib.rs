@@ -3,7 +3,7 @@
 use heck::ToSnakeCase;
 use proc_macro::{self, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Field, Index};
+use syn::{parse_macro_input, Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Index};
 
 #[proc_macro_derive(UnzipConsensus)]
 pub fn derive_unzip_consensus(input: TokenStream) -> TokenStream {
@@ -90,6 +90,29 @@ fn do_not_ignore(field: &Field) -> bool {
     })
 }
 
+// #[fedimint_core = "::minimint_core"]
+fn fedimint_core_path(attrs: &[Attribute]) -> proc_macro2::TokenStream {
+    attrs
+        .iter()
+        .find_map(|attr| {
+            let meta = attr.parse_meta().ok()?;
+            match meta {
+                syn::Meta::NameValue(syn::MetaNameValue {
+                    path,
+                    lit: syn::Lit::Str(value),
+                    ..
+                }) if path.is_ident("fedimint_core") => {
+                    let path = value
+                        .parse::<syn::Path>()
+                        .expect("fedimint_core path must parse as path");
+                    Some(quote!(#path))
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or(quote!(::fedimint_core))
+}
+
 fn panic_if_ignored(field: &Field) -> bool {
     if !do_not_ignore(field) {
         panic!("Trying to derive decodable from a struct with ignored fields");
@@ -97,9 +120,13 @@ fn panic_if_ignored(field: &Field) -> bool {
     true
 }
 
-#[proc_macro_derive(Encodable, attributes(encodable_ignore))]
+#[proc_macro_derive(Encodable, attributes(encodable_ignore, fedimint_core))]
 pub fn derive_encodable(input: TokenStream) -> TokenStream {
-    let DeriveInput { ident, data, .. } = parse_macro_input!(input);
+    let DeriveInput {
+        ident, data, attrs, ..
+    } = parse_macro_input!(input);
+
+    let fedimint_core = fedimint_core_path(&attrs);
 
     let output = match data {
         Data::Struct(DataStruct { fields, .. }) => {
@@ -112,10 +139,10 @@ pub fn derive_encodable(input: TokenStream) -> TokenStream {
                     .map(|(idx, _)| Index::from(idx))
                     .collect::<Vec<_>>();
                 quote! {
-                    impl ::fedimint_core::encoding::Encodable for #ident {
+                    impl #fedimint_core::encoding::Encodable for #ident {
                         fn consensus_encode<W: std::io::Write>(&self, mut writer: &mut W) -> std::result::Result<usize, std::io::Error> {
                             let mut len = 0;
-                            #(len += ::fedimint_core::encoding::Encodable::consensus_encode(&self.#field_names, writer)?;)*
+                            #(len += #fedimint_core::encoding::Encodable::consensus_encode(&self.#field_names, writer)?;)*
                             Ok(len)
                         }
                     }
@@ -128,10 +155,10 @@ pub fn derive_encodable(input: TokenStream) -> TokenStream {
                     .map(|field| field.ident.clone().unwrap())
                     .collect::<Vec<_>>();
                 quote! {
-                    impl ::fedimint_core::encoding::Encodable for #ident {
+                    impl #fedimint_core::encoding::Encodable for #ident {
                         fn consensus_encode<W: std::io::Write>(&self, writer: &mut W) -> std::result::Result<usize, std::io::Error> {
                             let mut len = 0;
-                            #(len += ::fedimint_core::encoding::Encodable::consensus_encode(&self.#field_names, writer)?;)*
+                            #(len += #fedimint_core::encoding::Encodable::consensus_encode(&self.#field_names, writer)?;)*
                             Ok(len)
                         }
                     }
@@ -161,8 +188,8 @@ pub fn derive_encodable(input: TokenStream) -> TokenStream {
                         .collect::<Vec<_>>();
                     quote! {
                         #ident::#variant_ident(#(#variant_fields,)*) => {
-                            len += ::fedimint_core::encoding::Encodable::consensus_encode(&(#variant_idx as u64), writer)?;
-                            #(len += ::fedimint_core::encoding::Encodable::consensus_encode(#variant_fields, writer)?;)*
+                            len += #fedimint_core::encoding::Encodable::consensus_encode(&(#variant_idx as u64), writer)?;
+                            #(len += #fedimint_core::encoding::Encodable::consensus_encode(#variant_fields, writer)?;)*
                         }
                     }
                 } else {
@@ -174,8 +201,8 @@ pub fn derive_encodable(input: TokenStream) -> TokenStream {
                         .collect::<Vec<_>>();
                     quote! {
                         #ident::#variant_ident { #(#variant_fields,)*} => {
-                            len += ::fedimint_core::encoding::Encodable::consensus_encode(&(#variant_idx as u64), writer)?;
-                            #(len += ::fedimint_core::encoding::Encodable::consensus_encode(#variant_fields, writer)?;)*
+                            len += #fedimint_core::encoding::Encodable::consensus_encode(&(#variant_idx as u64), writer)?;
+                            #(len += #fedimint_core::encoding::Encodable::consensus_encode(#variant_fields, writer)?;)*
                         }
                     }
                 }
@@ -210,10 +237,13 @@ pub fn derive_encodable(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-#[proc_macro_derive(Decodable)]
+#[proc_macro_derive(Decodable, attributes(fedimint_core))]
 pub fn derive_decodable(input: TokenStream) -> TokenStream {
-    let DeriveInput { ident, data, .. } = parse_macro_input!(input);
+    let DeriveInput {
+        ident, data, attrs, ..
+    } = parse_macro_input!(input);
 
+    let fedimint_core = fedimint_core_path(&attrs);
     let output = match data {
         Data::Struct(DataStruct { fields, .. }) => {
             if fields.iter().any(|field| field.ident.is_none()) {
@@ -225,11 +255,11 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
                     .map(|(idx, _)| format_ident!("field_{}", idx))
                     .collect::<Vec<_>>();
                 quote! {
-                    impl ::fedimint_core::encoding::Decodable for #ident {
-                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &::fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, ::fedimint_core::encoding::DecodeError>
+                    impl #fedimint_core::encoding::Decodable for #ident {
+                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &#fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, #fedimint_core::encoding::DecodeError>
                         {
                             let mut len = 0;
-                            #(let #field_names = ::fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
+                            #(let #field_names = #fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
                             Ok(#ident(#(#field_names,)*))
                         }
                     }
@@ -242,11 +272,11 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
                     .map(|field| field.ident.clone().unwrap())
                     .collect::<Vec<_>>();
                 quote! {
-                    impl ::fedimint_core::encoding::Decodable for #ident {
-                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &::fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, ::fedimint_core::encoding::DecodeError>
+                    impl #fedimint_core::encoding::Decodable for #ident {
+                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &#fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, #fedimint_core::encoding::DecodeError>
                         {
                             let mut len = 0;
-                            #(let #field_names = ::fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
+                            #(let #field_names = #fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
                             Ok(#ident{
                                 #(#field_names,)*
                             })
@@ -258,10 +288,10 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
         syn::Data::Enum(DataEnum { variants, .. }) => {
             if variants.is_empty() {
                 quote! {
-                    impl ::fedimint_core::encoding::Decodable for #ident {
-                        fn consensus_decode<D: std::io::Read>(_d: &mut D, _modules: &::fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, ::fedimint_core::encoding::DecodeError>
+                    impl #fedimint_core::encoding::Decodable for #ident {
+                        fn consensus_decode<D: std::io::Read>(_d: &mut D, _modules: &#fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, #fedimint_core::encoding::DecodeError>
                         {
-                            Err(::fedimint_core::encoding::DecodeError::new_custom(anyhow::anyhow!("Enum without variants can't be instantiated")))
+                            Err(#fedimint_core::encoding::DecodeError::new_custom(anyhow::anyhow!("Enum without variants can't be instantiated")))
                         }
                     }
                 }
@@ -279,7 +309,7 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
                         .collect::<Vec<_>>();
                     quote! {
                         #variant_idx => {
-                            #(let #variant_fields = ::fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
+                            #(let #variant_fields = #fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
                             #ident::#variant_ident(#(#variant_fields,)*)
                         }
                     }
@@ -292,7 +322,7 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
                         .collect::<Vec<_>>();
                     quote! {
                         #variant_idx => {
-                            #(let #variant_fields = ::fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
+                            #(let #variant_fields = #fedimint_core::encoding::Decodable::consensus_decode(d, modules)?;)*
                             #ident::#variant_ident{
                                 #(#variant_fields,)*
                             }
@@ -302,14 +332,14 @@ pub fn derive_decodable(input: TokenStream) -> TokenStream {
             });
 
                 quote! {
-                    impl ::fedimint_core::encoding::Decodable for #ident {
-                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &::fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, ::fedimint_core::encoding::DecodeError>
+                    impl #fedimint_core::encoding::Decodable for #ident {
+                        fn consensus_decode<D: std::io::Read>(d: &mut D, modules: &#fedimint_core::module::registry::ModuleDecoderRegistry) -> std::result::Result<Self, #fedimint_core::encoding::DecodeError>
                         {
-                            let variant = <u64 as ::fedimint_core::encoding::Decodable>::consensus_decode(d, modules)? as usize;
+                            let variant = <u64 as #fedimint_core::encoding::Decodable>::consensus_decode(d, modules)? as usize;
                             let decoded = match variant {
                                 #(#match_arms)*
                                 _ => {
-                                    return Err(::fedimint_core::encoding::DecodeError::from_str("invalid enum variant"));
+                                    return Err(#fedimint_core::encoding::DecodeError::from_str("invalid enum variant"));
                                 }
                             };
                             Ok(decoded)
