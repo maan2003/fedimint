@@ -185,7 +185,7 @@ impl ServerConfigConsensus {
     }
 }
 
-pub const CORE_CONSENSUS_VERSION: CoreConsensusVersion = CoreConsensusVersion(u32::MAX);
+pub const CORE_CONSENSUS_VERSION: CoreConsensusVersion = CoreConsensusVersion(2);
 
 impl ServerConfig {
     /// Api versions supported by this server
