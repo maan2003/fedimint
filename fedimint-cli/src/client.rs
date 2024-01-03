@@ -56,6 +56,8 @@ pub enum ClientCmd {
     Info,
     /// Reissue notes received from a third party to avoid double spends
     Reissue { oob_notes: OOBNotes },
+    /// Reissue notes received from a third party to avoid double spends
+    Reissue2 { oob_notes: Vec<OOBNotes> },
     /// Prepare notes to send to a third party as a payment
     Spend { amount: Amount },
     /// Verifies the signatures of e-cash notes, but *not* if they have been
@@ -178,6 +180,29 @@ pub async fn handle_command(
             }
 
             Ok(serde_json::to_value(amount).unwrap())
+        }
+        ClientCmd::Reissue2 { oob_notes } => {
+            let tasks = oob_notes.into_iter().map(|note| async {
+                let mint = client.get_first_module::<MintClientModule>();
+
+                let operation_id = mint.reissue_external_notes(note, ()).await?;
+                let mut updates = mint
+                    .subscribe_reissue_external_notes(operation_id)
+                    .await
+                    .unwrap()
+                    .into_stream();
+
+                while let Some(update) = updates.next().await {
+                    if let fedimint_mint_client::ReissueExternalNotesState::Failed(e) = update {
+                        bail!("Reissue failed: {e}");
+                    }
+
+                    info!("Update: {update:?}");
+                }
+                Ok(())
+            });
+            futures::future::try_join_all(tasks).await?;
+            Ok(serde_json::to_value(()).unwrap())
         }
         ClientCmd::Spend { amount } => {
             let (operation, notes) = client
