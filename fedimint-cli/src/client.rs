@@ -205,15 +205,32 @@ pub async fn handle_command(
             Ok(serde_json::to_value(()).unwrap())
         }
         ClientCmd::Spend { amount } => {
-            let (operation, notes) = client
-                .get_first_module::<MintClientModule>()
+            let mint = &client.get_first_module::<MintClientModule>();
+            let (operation, notes) = mint
                 .spend_notes(amount, Duration::from_secs(3600), ())
                 .await?;
-            info!("Spend e-cash operation: {operation}");
-
-            Ok(json!({
-                "notes": notes,
-            }))
+            if notes.total_amount() != amount {
+                mint.try_cancel_spend_notes(operation).await;
+                let mut stream = mint.subscribe_spend_notes(operation).await?.into_stream();
+                while let Some(update) = stream.next().await {
+                    info!(?update, "spend update");
+                }
+                let (operation, notes) = mint
+                    .spend_notes(amount, Duration::from_secs(3600), ())
+                    .await?;
+                let mut stream = mint.subscribe_spend_notes(operation).await?.into_stream();
+                while let Some(update) = stream.next().await {
+                    info!(?update, "spend update");
+                }
+                Ok(json!({
+                    "notes": notes,
+                }))
+            } else {
+                info!("Spend e-cash operation: {operation}");
+                Ok(json!({
+                    "notes": notes,
+                }))
+            }
         }
         ClientCmd::Validate { oob_notes } => {
             let amount = client
