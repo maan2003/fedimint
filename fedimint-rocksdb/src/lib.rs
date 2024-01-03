@@ -1,6 +1,7 @@
 #![allow(where_clauses_object_safety)] // https://github.com/dtolnay/async-trait/issues/228
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -269,6 +270,7 @@ impl<'a> IDatabaseTransactionOps for RocksDbTransaction<'a> {
 #[async_trait]
 impl<'a> IRawDatabaseTransaction for RocksDbTransaction<'a> {
     async fn commit_tx(self) -> Result<()> {
+        fedimint_core::task::sleep(Duration::from_secs(1)).await;
         fedimint_core::task::block_in_place(|| {
             self.0.commit()?;
             Ok(())
