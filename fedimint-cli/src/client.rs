@@ -58,6 +58,8 @@ pub enum ClientCmd {
     Reissue { oob_notes: OOBNotes },
     /// Prepare notes to send to a third party as a payment
     Spend { amount: Amount },
+    /// Prepare notes to send to a third party as a payment multiple
+    SpendMulti { amount: Amount, count: u64 },
     /// Verifies the signatures of e-cash notes, but *not* if they have been
     /// spent already
     Validate { oob_notes: OOBNotes },
@@ -188,6 +190,32 @@ pub async fn handle_command(
 
             Ok(json!({
                 "notes": notes,
+            }))
+        }
+        ClientCmd::SpendMulti { amount, count } => {
+            let mint = &client.get_first_module::<MintClientModule>();
+            let mut notes_multi = Vec::new();
+            for _ in 0..count {
+                let (operation, notes) = mint
+                    .spend_notes(amount, Duration::from_secs(3600), ())
+                    .await?;
+                // don't have denominations
+                if notes.total_amount() != amount {
+                    mint.try_cancel_spend_notes(operation).await;
+                    let mut stream = mint.subscribe_spend_notes(operation).await?.into_stream();
+                    while let Some(update) = stream.next().await {
+                        info!(?update, "spend update");
+                    }
+                    let (_, notes) = mint
+                        .spend_notes(amount, Duration::from_secs(3600), ())
+                        .await?;
+                    notes_multi.push(notes.to_string());
+                } else {
+                    notes_multi.push(notes.to_string());
+                }
+            }
+            Ok(json!({
+                "notes": notes_multi.join(" "),
             }))
         }
         ClientCmd::Validate { oob_notes } => {
