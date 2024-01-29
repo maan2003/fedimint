@@ -10,7 +10,7 @@ mod tbs;
 #[cfg(not(target_family = "wasm"))]
 mod tls;
 
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
@@ -318,11 +318,11 @@ pub fn consensus_decode_bytes<D: std::io::Read>(r: &mut D) -> Result<Vec<u8>, De
 /// Specialized version of Decodable for fixed-size byte arrays
 pub fn consensus_decode_bytes_static<const N: usize, D: std::io::Read>(
     r: &mut D,
-) -> Result<[u8; N], DecodeError> {
-    let mut bytes = [0u8; N];
-    r.read_exact(bytes.as_mut_slice())
+    out: &mut [u8; N],
+) -> Result<(), DecodeError> {
+    r.read_exact(out.as_mut_slice())
         .map_err(DecodeError::from_err)?;
-    Ok(bytes)
+    Ok(())
 }
 
 impl_encode_decode_tuple!(T1, T2);
@@ -366,9 +366,10 @@ where
         d: &mut D,
         modules: &ModuleDecoderRegistry,
     ) -> Result<Self, DecodeError> {
-        if TypeId::of::<T>() == TypeId::of::<u8>() {
-            // unsafe: we've just checked that T is `u8` so the transmute here is a no-op
-            return Ok(unsafe { mem::transmute::<Vec<u8>, Vec<T>>(consensus_decode_bytes(d)?) });
+        let mut res = Vec::<T>::new();
+        if let Some(res_u8) = (&mut res as &mut dyn Any).downcast_mut::<Vec<u8>>() {
+            *res_u8 = consensus_decode_bytes(d)?;
+            return Ok(res);
         }
         let len = u64::consensus_decode(d, modules)?;
 
@@ -415,12 +416,8 @@ where
     T: Encodable + 'static,
 {
     fn consensus_encode<W: std::io::Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
-        if TypeId::of::<T>() == TypeId::of::<u8>() {
-            // unsafe: we've just checked that T is `u8` so the transmute here is a no-op
-            return consensus_encode_bytes_static(
-                unsafe { mem::transmute::<&[T; SIZE], &[u8; SIZE]>(self) },
-                writer,
-            );
+        if let Some(this) = (self as &dyn Any).downcast_ref::<[u8; SIZE]>() {
+            return consensus_encode_bytes_static(this, writer);
         }
 
         let mut len = 0;
@@ -431,14 +428,6 @@ where
     }
 }
 
-// From <https://github.com/rust-lang/rust/issues/61956>
-unsafe fn horribe_array_transmute_workaround<const N: usize, A, B>(mut arr: [A; N]) -> [B; N] {
-    let ptr = &mut arr as *mut _ as *mut [B; N];
-    let res = unsafe { ptr.read() };
-    core::mem::forget(arr);
-    res
-}
-
 impl<T, const SIZE: usize> Decodable for [T; SIZE]
 where
     T: Decodable + Debug + Default + Copy + 'static,
@@ -447,15 +436,12 @@ where
         d: &mut D,
         modules: &ModuleDecoderRegistry,
     ) -> Result<Self, DecodeError> {
-        if TypeId::of::<T>() == TypeId::of::<u8>() {
-            // unsafe: we've just checked that T is `u8` so the transmute here is a no-op
-            return Ok(unsafe {
-                let arr = consensus_decode_bytes_static(d)?;
-                horribe_array_transmute_workaround::<SIZE, u8, T>(arr)
-            });
+        let mut data = [T::default(); SIZE];
+        if let Some(data_u8) = (&mut data as &mut dyn Any).downcast_mut::<[u8; SIZE]>() {
+            consensus_decode_bytes_static(d, data_u8)?;
+            return Ok(data);
         }
         // todo: impl without copy
-        let mut data = [T::default(); SIZE];
         for item in data.iter_mut() {
             *item = T::consensus_decode(d, modules)?;
         }
