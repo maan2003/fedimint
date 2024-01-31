@@ -48,12 +48,16 @@ pub struct Client {
 }
 
 impl Client {
-    fn client_dir(&self) -> PathBuf {
+    fn clients_dir() -> PathBuf {
         let data_dir: PathBuf = env::var("FM_DATA_DIR")
             .expect("FM_DATA_DIR not set")
             .parse()
             .expect("FM_DATA_DIR invalid");
-        data_dir.join("clients").join(&self.name)
+        data_dir.join("clients")
+    }
+
+    fn client_dir(&self) -> PathBuf {
+        Self::clients_dir().join(&self.name)
     }
 
     /// Create a [`Client`] that starts with a fresh state.
@@ -61,23 +65,35 @@ impl Client {
     /// Fails if directory exists. See [`Self::open_or_create`]
     /// if that's not desired.
     pub async fn create(name: &str) -> Result<Client> {
-        let client = Self {
-            name: name.to_owned(),
-        };
+        tokio::task::block_in_place(|| {
+            // create means create or truncate
+            let lock_path = Self::clients_dir().join(format!(".{name}.lock"));
+            let file_lock = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&lock_path)
+                .with_context(|| format!("Failed to open {}", lock_path.display()))?;
+            fs_lock::FileLock::new_exclusive(file_lock)
+                .with_context(|| format!("Failed to lock {}", lock_path.display()))?;
+            for i in 0u64.. {
+                let client = Self {
+                    name: format!("{name}-{i}"),
+                };
 
-        if !client.client_dir().exists() {
-            std::fs::create_dir_all(client.client_dir())?;
-        } else {
-            bail!("Client already exists: {name}");
-        }
-
-        Ok(client)
+                if !client.client_dir().exists() {
+                    std::fs::create_dir_all(client.client_dir())?;
+                    return Ok(client);
+                }
+            }
+            unreachable!()
+        })
     }
 
     /// Open or create a [`Client`] that starts with a fresh state.
     pub async fn open_or_create(name: &str) -> Result<Client> {
         let client = Self {
-            name: name.to_owned(),
+            name: format!("{name}-0"),
         };
 
         if !client.client_dir().exists() {
