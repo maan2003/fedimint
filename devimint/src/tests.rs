@@ -1776,6 +1776,9 @@ pub enum TestCmd {
         #[arg(long, trailing_var_arg = true, allow_hyphen_values = true, num_args=1..)]
         exec: Option<Vec<ffi::OsString>>,
     },
+    TestConsensusFix {
+        old_fedimintd: PathBuf,
+    },
 }
 
 pub async fn handle_command(cmd: TestCmd, common_args: CommonArgs) -> Result<()> {
@@ -1851,6 +1854,25 @@ pub async fn handle_command(cmd: TestCmd, common_args: CommonArgs) -> Result<()>
             let (process_mgr, _) = setup(common_args).await?;
             let dev_fed = dev_fed(&process_mgr).await?;
             recoverytool_test(dev_fed).await?;
+        }
+        TestCmd::TestConsensusFix { old_fedimintd } => {
+            let (process_mgr, _) = setup(common_args.clone()).await?;
+            // setup and start federation with old fedimintd
+            std::env::set_var("FM_FEDIMINTD_BASE_EXECUTABLE", old_fedimintd);
+            let mut dev_fed = dev_fed(&process_mgr).await?;
+            // use the federation for some time
+            latency_tests(dev_fed.clone()).await?;
+            // stop the federation
+            for peer in 0..common_args.fed_size {
+                dev_fed.fed.terminate_server(peer).await?;
+            }
+            // restart all but one peers (degraded federation)
+            std::env::remove_var("FM_FEDIMINTD_BASE_EXECUTABLE");
+            for peer in 0..(common_args.fed_size - 1) {
+                dev_fed.fed.start_server(&process_mgr, peer).await?;
+            }
+            // test the federation again
+            latency_tests(dev_fed).await?;
         }
     }
     Ok(())
