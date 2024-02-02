@@ -244,18 +244,21 @@ pub async fn latency_tests(dev_fed: DevFed) -> Result<()> {
         .as_str()
         .map(ToOwned::to_owned)
         .unwrap();
-    let restore_client = Client::create("restore").await?;
     let start_time = Instant::now();
-    cmd!(
-        restore_client,
-        "restore",
-        "--mnemonic",
-        &backup_secret,
-        "--invite-code",
-        fed.invite_code()?
-    )
-    .run()
-    .await?;
+    let fedimint_cli_version = crate::util::FedimintCli::version_or_default().await;
+    let restore_client = Client::create("restore").await?;
+    if VersionReq::parse(">=0.3.0-alpha")?.matches(&fedimint_cli_version) {
+        cmd!(
+            restore_client,
+            "restore",
+            "--mnemonic",
+            &backup_secret,
+            "--invite-code",
+            fed.invite_code()?
+        )
+        .run()
+        .await?;
+    }
     let restore_time = start_time.elapsed();
 
     println!(
