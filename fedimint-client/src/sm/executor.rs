@@ -520,102 +520,102 @@ impl ExecutorInner {
                         let module_contexts = self.module_contexts.clone();
                         let global_context_gen = global_context_gen.clone();
                         Box::pin(
-                        async move {
-                            info!(
-                                target: LOG_CLIENT_REACTOR,
-                                operation_id = %state.operation_id(),
-                                "Executing state transition",
-                            );
-                            debug!(
-                                target: LOG_CLIENT_REACTOR,
-                                operation_id = %state.operation_id(),
-                                ?state,
-                                outcome = ?AbbreviateJson(&outcome),
-                                "Executing state transition (details)",
-                            );
+                            async move {
+                                info!(
+                                    target: LOG_CLIENT_REACTOR,
+                                    operation_id = %state.operation_id(),
+                                    "Executing state transition",
+                                );
+                                debug!(
+                                    target: LOG_CLIENT_REACTOR,
+                                    operation_id = %state.operation_id(),
+                                    ?state,
+                                    outcome = ?AbbreviateJson(&outcome),
+                                    "Executing state transition (details)",
+                                );
 
-                            let module_contexts = &module_contexts;
-                            let global_context_gen = &global_context_gen;
+                                let module_contexts = &module_contexts;
+                                let global_context_gen = &global_context_gen;
 
-                            let outcome = db
-                                .autocommit::<'_, '_, _, _, Infallible>(
-                                    |dbtx, _| {
-                                        let state = state.clone();
-                                        let transition_fn = transition_fn.clone();
-                                        let transition_outcome = outcome.clone();
-                                        Box::pin(async move {
-                                            let new_state = transition_fn(
-                                                &mut ClientSMDatabaseTransaction::new(
-                                                    &mut dbtx.to_ref(),
+                                let outcome = db
+                                    .autocommit::<'_, '_, _, _, Infallible>(
+                                        |dbtx, _| {
+                                            let state = state.clone();
+                                            let transition_fn = transition_fn.clone();
+                                            let transition_outcome = outcome.clone();
+                                            Box::pin(async move {
+                                                let new_state = transition_fn(
+                                                    &mut ClientSMDatabaseTransaction::new(
+                                                        &mut dbtx.to_ref(),
+                                                        state.module_instance_id(),
+                                                    ),
+                                                    transition_outcome,
+                                                    state.clone(),
+                                                )
+                                                .await;
+                                                dbtx.remove_entry(&ActiveStateKey::from_state(
+                                                    state.clone(),
+                                                ))
+                                                .await;
+                                                dbtx.insert_entry(
+                                                    &InactiveStateKey::from_state(state.clone()),
+                                                    &meta.into_inactive(),
+                                                )
+                                                .await;
+
+                                                let context = &module_contexts
+                                                    .get(&state.module_instance_id())
+                                                    .expect("Unknown module");
+
+                                                let global_context = global_context_gen(
                                                     state.module_instance_id(),
-                                                ),
-                                                transition_outcome,
-                                                state.clone(),
-                                            )
-                                            .await;
-                                            dbtx.remove_entry(&ActiveStateKey::from_state(
-                                                state.clone(),
-                                            ))
-                                            .await;
-                                            dbtx.insert_entry(
-                                                &InactiveStateKey::from_state(state.clone()),
-                                                &meta.into_inactive(),
-                                            )
-                                            .await;
+                                                    state.operation_id(),
+                                                );
+                                                if new_state.is_terminal(context, &global_context) {
+                                                    // TODO: log state machine id or something
+                                                    debug!("State machine reached terminal state");
+                                                    let k = InactiveStateKey::from_state(
+                                                        new_state.clone(),
+                                                    );
+                                                    let v = ActiveState::new().into_inactive();
+                                                    dbtx.insert_entry(&k, &v).await;
+                                                    Ok(ActiveOrInactiveState::Inactive {
+                                                        dyn_state: new_state,
+                                                    })
+                                                } else {
+                                                    let k = ActiveStateKey::from_state(
+                                                        new_state.clone(),
+                                                    );
+                                                    let v = ActiveState::new();
+                                                    dbtx.insert_entry(&k, &v).await;
+                                                    Ok(ActiveOrInactiveState::Active {
+                                                        dyn_state: new_state,
+                                                        meta: v,
+                                                    })
+                                                }
+                                            })
+                                        },
+                                        None,
+                                    )
+                                    .await
+                                    .expect("autocommit should keep trying to commit (max_attempt: None) and body doesn't return errors");
 
-                                            let context = &
-                                                module_contexts
-                                                .get(&state.module_instance_id())
-                                                .expect("Unknown module");
-
-                                            let global_context = global_context_gen(
-                                                state.module_instance_id(),
-                                                state.operation_id(),
-                                            );
-                                            if new_state.is_terminal(context, &global_context) {
-                                                // TODO: log state machine id or something
-                                                debug!("State machine reached terminal state");
-                                                let k =
-                                                    InactiveStateKey::from_state(new_state.clone());
-                                                let v = ActiveState::new().into_inactive();
-                                                dbtx.insert_entry(&k, &v).await;
-                                                Ok(ActiveOrInactiveState::Inactive {
-                                                    dyn_state: new_state,
-                                                })
-                                            } else {
-                                                let k =
-                                                    ActiveStateKey::from_state(new_state.clone());
-                                                let v = ActiveState::new();
-                                                dbtx.insert_entry(&k, &v).await;
-                                                Ok(ActiveOrInactiveState::Active {
-                                                    dyn_state: new_state,
-                                                    meta: v,
-                                                })
-                                            }
-                                        })
-                                    },
-                                    None,
-                                )
-                                .await
-                                .expect("autocommit should keep trying to commit (max_attempt: None) and body doesn't return errors");
-
-
-                            match &outcome {
-                                ActiveOrInactiveState::Active {
-                                    dyn_state,
-                                    meta: _,
-                                } => {
-                                    sm_update_tx.send(dyn_state.clone()).expect("can't fail: we are the receiving end");
-                                    notifier.notify(dyn_state.clone());
+                                match &outcome {
+                                    ActiveOrInactiveState::Active { dyn_state, meta: _ } => {
+                                        sm_update_tx
+                                            .send(dyn_state.clone())
+                                            .expect("can't fail: we are the receiving end");
+                                        notifier.notify(dyn_state.clone());
+                                    }
+                                    ActiveOrInactiveState::Inactive { dyn_state } => {
+                                        notifier.notify(dyn_state.clone());
+                                    }
                                 }
-                                ActiveOrInactiveState::Inactive { dyn_state } => {
-                                    notifier.notify(dyn_state.clone());
-                                }
+                                ExecutorLoopEvent::Completed { state, outcome }
                             }
-                            ExecutorLoopEvent::Completed { state, outcome }
-                        }
-                        .instrument(span),
-                    )});
+                            .instrument(span),
+                        )
+                    });
                 }
                 ExecutorLoopEvent::Completed { state, outcome } => {
                     currently_running_sms.remove(&state);
@@ -624,12 +624,14 @@ impl ExecutorInner {
                         operation_id = %state.operation_id(),
                         outcome_active = outcome.is_active(),
                         total = futures.len(),
-                        "State transition complete");
+                        "State transition complete"
+                    );
                     trace!(
                         target: LOG_CLIENT_REACTOR,
                         ?outcome,
                         operation_id = %state.operation_id(), total = futures.len(),
-                        "State transition complete");
+                        "State transition complete"
+                    );
                 }
                 ExecutorLoopEvent::Disconnected => {
                     break;
