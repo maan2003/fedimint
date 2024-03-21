@@ -26,8 +26,8 @@ pub fn attach_default_module_init_params(
     network: Network,
     finality_delay: u32,
 ) {
-    module_init_params
-        .attach_config_gen_params(
+    if !module_init_params.has_module_config(LightningInit::kind()) {
+        module_init_params.attach_config_gen_params(
             LightningInit::kind(),
             LightningGenParams {
                 local: LightningGenParamsLocal {
@@ -35,15 +35,19 @@ pub fn attach_default_module_init_params(
                 },
                 consensus: LightningGenParamsConsensus { network },
             },
-        )
-        .attach_config_gen_params(
+        );
+    }
+    if !module_init_params.has_module_config(MintInit::kind()) {
+        module_init_params.attach_config_gen_params(
             MintInit::kind(),
             MintGenParams {
                 local: Default::default(),
                 consensus: MintGenParamsConsensus::new(2, FeeConsensus::default()),
             },
-        )
-        .attach_config_gen_params(
+        );
+    }
+    if !module_init_params.has_module_config(WalletInit::kind()) {
+        module_init_params.attach_config_gen_params(
             WalletInit::kind(),
             WalletGenParams {
                 local: WalletGenParamsLocal {
@@ -58,13 +62,18 @@ pub fn attach_default_module_init_params(
                 },
             },
         );
+    }
 
     if !is_env_var_set(FM_DISABLE_META_MODULE_ENV) {
-        module_init_params.attach_config_gen_params(MetaInit::kind(), MetaGenParams::default());
+        if !module_init_params.has_module_config(MetaInit::kind()) {
+            module_init_params.attach_config_gen_params(MetaInit::kind(), MetaGenParams::default());
+        }
     }
 
     if is_env_var_set(FM_USE_UNKNOWN_MODULE_ENV) {
-        module_init_params
-            .attach_config_gen_params(UnknownInit::kind(), UnknownGenParams::default());
+        if !module_init_params.has_module_config(UnknownInit::kind()) {
+            module_init_params
+                .attach_config_gen_params(UnknownInit::kind(), UnknownGenParams::default());
+        }
     }
 }

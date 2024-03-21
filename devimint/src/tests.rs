@@ -2198,7 +2198,7 @@ pub async fn handle_command(cmd: TestCmd, common_args: CommonArgs) -> Result<()>
             let main = {
                 let task_group = task_group.clone();
                 async move {
-                    let dev_fed = dev_fed(&process_mgr).await?;
+                    let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
                     let (_, _, faucet) = tokio::try_join!(
                         dev_fed.fed.pegin_gateway(20_000, &dev_fed.gw_cln),
                         dev_fed.fed.pegin_gateway(20_000, &dev_fed.gw_lnd),
@@ -2232,47 +2232,47 @@ pub async fn handle_command(cmd: TestCmd, common_args: CommonArgs) -> Result<()>
         }
         TestCmd::LatencyTests { r#type } => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             latency_tests(dev_fed, r#type).await?;
         }
         TestCmd::ReconnectTest => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             reconnect_test(dev_fed, &process_mgr).await?;
         }
         TestCmd::CliTests => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             cli_tests(dev_fed).await?;
         }
         TestCmd::LoadTestToolTest => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             cli_load_test_tool_test(dev_fed).await?;
         }
         TestCmd::LightningReconnectTest => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             lightning_gw_reconnect_test(dev_fed, &process_mgr).await?;
         }
         TestCmd::GatewayRebootTest => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             gw_reboot_test(dev_fed, &process_mgr).await?;
         }
         TestCmd::RecoverytoolTests => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             recoverytool_test(dev_fed).await?;
         }
         TestCmd::GuardianBackup => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             guardian_backup_test(dev_fed, &process_mgr).await?;
         }
         TestCmd::CannotReplayTransaction => {
             let (process_mgr, _) = setup(common_args).await?;
-            let dev_fed = dev_fed(&process_mgr).await?;
+            let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
             cannot_replay_tx_test(dev_fed).await?;
         }
     }

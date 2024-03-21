@@ -1,4 +1,5 @@
 use anyhow::Result;
+use fedimint_core::config::ServerModuleConfigGenParamsRegistry;
 use fedimint_logging::LOG_DEVIMINT;
 use tracing::{debug, info};
 
@@ -20,7 +21,10 @@ pub struct DevFed {
     pub esplora: Esplora,
 }
 
-pub async fn dev_fed(process_mgr: &ProcessManager) -> Result<DevFed> {
+pub async fn dev_fed(
+    process_mgr: &ProcessManager,
+    server_module_params: ServerModuleConfigGenParamsRegistry,
+) -> Result<DevFed> {
     let fed_size = process_mgr.globals.FM_FED_SIZE;
     let offline_nodes = process_mgr.globals.FM_OFFLINE_NODES;
     anyhow::ensure!(
@@ -49,7 +53,12 @@ pub async fn dev_fed(process_mgr: &ProcessManager) -> Result<DevFed> {
         },
         Electrs::new(process_mgr, bitcoind.clone()),
         Esplora::new(process_mgr, bitcoind.clone()),
-        Federation::new(process_mgr, bitcoind.clone(), fed_size),
+        Federation::new(
+            process_mgr,
+            bitcoind.clone(),
+            fed_size,
+            server_module_params
+        ),
     )?;
 
     info!(target: LOG_DEVIMINT, "Federation and gateways started");

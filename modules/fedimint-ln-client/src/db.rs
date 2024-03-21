@@ -117,7 +117,7 @@ fn get_v1_migrated_state(
     let key = fedimint_core::core::ModuleInstanceId::consensus_decode(&mut cursor, decoders)?;
     debug_assert_eq!(key, module_instance_id, "Unexpected module instance ID");
 
-    let ln_sm_variant = u16::consensus_decode(&mut cursor, decoders)?;
+    let ln_sm_variant = u64::consensus_decode(&mut cursor, decoders)?;
 
     // If the state machine is not a receive state machine, return None
     if ln_sm_variant != 2 {

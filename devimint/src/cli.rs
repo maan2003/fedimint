@@ -215,7 +215,7 @@ pub async fn handle_command(cmd: Cmd, common_args: CommonArgs) -> Result<()> {
             let main = {
                 let task_group = task_group.clone();
                 async move {
-                    let dev_fed = dev_fed(&process_mgr).await?;
+                    let dev_fed = dev_fed(&process_mgr, Default::default()).await?;
                     let fed_id = dev_fed.fed.calculate_federation_id().await;
 
                     let pegin_start_time = Instant::now();

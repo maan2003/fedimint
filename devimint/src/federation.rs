@@ -183,6 +183,7 @@ impl Federation {
         process_mgr: &ProcessManager,
         bitcoind: Bitcoind,
         servers: usize,
+        server_module_params: ServerModuleConfigGenParamsRegistry,
     ) -> Result<Self> {
         let mut members = BTreeMap::new();
         let mut peer_to_env_vars_map = BTreeMap::new();
@@ -191,7 +192,7 @@ impl Federation {
         let params: HashMap<PeerId, ConfigGenParams> = local_config_gen_params(
             &peers,
             process_mgr.globals.FM_PORT_FEDIMINTD_BASE,
-            ServerModuleConfigGenParamsRegistry::default(),
+            server_module_params,
         )?;
 
         let mut admin_clients: BTreeMap<PeerId, DynGlobalApi> = BTreeMap::new();

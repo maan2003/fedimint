@@ -617,6 +617,9 @@ impl ModuleRegistry<ConfigGenModuleParams> {
         self.append_module(kind, params);
         self
     }
+    pub fn has_module_config(&self, kind: ModuleKind) -> bool {
+        self.iter_modules().any(|x| *x.1 == kind)
+    }
 }
 
 impl ServerModuleInitRegistry {
