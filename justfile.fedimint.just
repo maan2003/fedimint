@@ -10,6 +10,12 @@ check-ulimit:
       >&2 echo "⚠️  ulimit too small. Run 'ulimit -Sn 1024' to avoid problems running tests"
   fi
 
+compile:
+    x remote command cargo check
+
+run-tests *ARGS:
+    x remote command cargo test {{ARGS}}
+
 # run tests against real services (like bitcoind)
 test-real: check-ulimit
   ./scripts/tests/rust-tests.sh
